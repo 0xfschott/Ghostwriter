@@ -2,6 +2,7 @@
 
 # Django Imports
 from django.contrib import admin
+from django import forms
 
 # 3rd Party Libraries
 from import_export.admin import ImportExportModelAdmin
@@ -21,6 +22,7 @@ from ghostwriter.reporting.models import (
     ReportFindingLink,
     ReportTemplate,
     Severity,
+    CVSSRating
 )
 from ghostwriter.reporting.resources import FindingResource
 
@@ -67,11 +69,10 @@ class EvidenceAdmin(admin.ModelAdmin):
 class FindingTypeAdmin(admin.ModelAdmin):
     pass
 
-
 @admin.register(Finding)
 class FindingAdmin(ImportExportModelAdmin):
     resource_class = FindingResource
-    list_display = ("title", "severity", "finding_type", "tag_list")
+    list_display = ("title", "severity", "finding_type", "tag_list", "cvss_ratings")
     list_filter = (
         "severity",
         "finding_type",
@@ -79,6 +80,7 @@ class FindingAdmin(ImportExportModelAdmin):
     )
     list_editable = ("severity", "finding_type")
     list_display_links = ("title",)
+
     fieldsets = (
         (
             "General Information",
@@ -87,9 +89,8 @@ class FindingAdmin(ImportExportModelAdmin):
                     "title",
                     "finding_type",
                     "severity",
-                    "cvss_score",
-                    "cvss_vector",
                     "tags",
+                    "cvss_ratings"
                 )
             },
         ),
@@ -154,7 +155,7 @@ class ReportAdmin(admin.ModelAdmin):
 
 @admin.register(ReportFindingLink)
 class ReportFindingLinkAdmin(admin.ModelAdmin):
-    list_display = ("report", "severity", "finding_type", "title", "complete", "tag_list")
+    list_display = ("report", "severity", "finding_type", "title", "complete", "tag_list", "cvss_ratings")
     list_filter = ("severity", "finding_type", "complete", "tags")
     list_editable = (
         "severity",
@@ -170,8 +171,6 @@ class ReportFindingLinkAdmin(admin.ModelAdmin):
                     "position",
                     "title",
                     "finding_type",
-                    "severity",
-                    "cvss_score",
                     "tags",
                 )
             },
@@ -202,6 +201,9 @@ class ReportFindingLinkAdmin(admin.ModelAdmin):
 
     def tag_list(self, obj):
         return ", ".join(o.name for o in obj.tags.all())
+    
+    def cvss_ratings(self, obf):
+        return ", ".join(f"CVSSv{o.version}: {o.vector} ({o.score})" for o in obj.cvss_ratings.all())
 
 
 @admin.register(Severity)

@@ -38,7 +38,8 @@ from ghostwriter.reporting.models import (
     ReportFindingLink,
     ReportObservationLink,
     ReportTemplate,
-    Severity,
+    Severity, 
+    CVSSRating
 )
 from ghostwriter.rolodex.models import Project
 
@@ -48,19 +49,33 @@ class FindingForm(forms.ModelForm):
 
     extra_fields = ExtraFieldsField(Finding._meta.label)
 
+    cvss_version = forms.ChoiceField(choices=CVSSRating.CVSS_VERSIONS, required=False, label="CVSS Version")
+    cvss_score = forms.FloatField(required=False, label="CVSS Score")
+    cvss_vector = forms.CharField(required=False, label="CVSS Vector")
+
     class Meta:
         model = Finding
         fields = "__all__"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        if self.instance.pk:
+            cvss_ratings = self.instance.cvss_ratings.all().order_by('-version')
+            if cvss_ratings.exists():
+                highest_version = cvss_ratings.first()
+                self.fields['cvss_version'].initial = highest_version.version
+                self.fields['cvss_score'].initial = highest_version.score
+                self.fields['cvss_vector'].initial = highest_version.vector
+
         for field in self.fields:
             self.fields[field].widget.attrs["autocomplete"] = "off"
         self.fields["title"].widget.attrs["placeholder"] = "Finding Title"
         self.fields["description"].widget.attrs["placeholder"] = "What is this ..."
         self.fields["impact"].widget.attrs["placeholder"] = "What is the impact ..."
-        self.fields["cvss_score"].widget.attrs["placeholder"] = "What is the CVSS score ..."
-        self.fields["cvss_vector"].widget.attrs["placeholder"] = "What is the CVSS vector ..."
+        self.fields["cvss_version"].widget.attrs["placeholder"] = "CVSS version"
+        self.fields["cvss_score"].widget.attrs["placeholder"] = "CVSS Score"
+        self.fields["cvss_vector"].widget.attrs["placeholder"] = "CVSS Vector"
 
         self.fields["mitigation"].widget.attrs["placeholder"] = "What needs to be done ..."
         self.fields["replication_steps"].widget.attrs["placeholder"] = "How to reproduce/find this issue ..."
@@ -101,8 +116,9 @@ class FindingForm(forms.ModelForm):
                 css_class="form-row",
             ),
             Row(
-                Column("cvss_score", css_class="form-group col-md-6 mb-0"),
-                Column("cvss_vector", css_class="form-group col-md-6 mb-0"),
+                Column("cvss_version", css_class="form-group col-md-4 mb-0"),
+                Column("cvss_score", css_class="form-group col-md-4 mb-0"),
+                Column("cvss_vector", css_class="form-group col-md-4 mb-0"),
                 css_class="form-row",
             ),
             Accordion(
@@ -259,6 +275,16 @@ class FindingForm(forms.ModelForm):
                 ),
             ),
         )
+    def save(self, commit=True):
+        finding = super().save(commit=False)
+        if commit:
+            finding.save()
+            cvss_version = self.cleaned_data.get("cvss_version")
+            cvss_score = self.cleaned_data.get("cvss_score")
+            cvss_vector = self.cleaned_data.get("cvss_vector")
+            if cvss_version and cvss_score is not None and cvss_vector:
+                finding.add_cvss_rating(cvss_version, cvss_score, cvss_vector)
+        return finding
 
 
 class ReportForm(forms.ModelForm):
@@ -428,8 +454,9 @@ class ReportFindingLinkUpdateForm(forms.ModelForm):
                 Column("severity", css_class="form-group col-md-6 mb-0"),
             ),
             Row(
-                Column("cvss_score", css_class="form-group col-md-6 mb-0"),
-                Column("cvss_vector", css_class="form-group col-md-6 mb-0"),
+                Column("cvss_version", css_class="form-group col-md-4 mb-0"),
+                Column("cvss_score", css_class="form-group col-md-4 mb-0"),
+                Column("cvss_vector", css_class="form-group col-md-4 mb-0"),
                 css_class="form-row",
             ),
             Accordion(

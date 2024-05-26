@@ -981,10 +981,12 @@ class ConvertFinding(RoleBasedAccessControlMixin, SingleObjectMixin, View):
         return redirect(reverse("reporting:report_detail", kwargs={"pk": self.get_object().report.pk}) + "#findings")
 
     def get(self, *args, **kwargs):
+        print("CALLED!!")
         finding_instance = self.get_object()
+        cvss_rating = finding_instance.cvss_ratings.first()
+
         try:
-            form = FindingForm(
-                initial={
+            initial = {
                     "title": finding_instance.title,
                     "description": finding_instance.description,
                     "impact": finding_instance.impact,
@@ -995,11 +997,16 @@ class ConvertFinding(RoleBasedAccessControlMixin, SingleObjectMixin, View):
                     "references": finding_instance.references,
                     "severity": finding_instance.severity,
                     "finding_type": finding_instance.finding_type,
-                    "cvss_score": finding_instance.cvss_score,
-                    "cvss_vector": finding_instance.cvss_vector,
                     "tags": finding_instance.tags.all(),
                 }
-            )
+
+            if cvss_rating:
+                initial.update({
+                    "cvss_version": cvss_rating.version,
+                    "cvss_score": cvss_rating.score,
+                    "cvss_vector": cvss_rating.vector,
+                })
+            form = FindingForm(initial=initial_data)
         except Exception as exception:  # pragma: no cover
             template = "An exception of type {0} occurred. Arguments:\n{1!r}"
             log_message = template.format(type(exception).__name__, exception.args)
@@ -1166,7 +1173,7 @@ class FindingListView(RoleBasedAccessControlMixin, ListView):
         findings = (
             Finding.objects.select_related("severity", "finding_type")
             .all()
-            .order_by("severity__weight", "-cvss_score", "finding_type", "title")
+            .order_by("severity__weight", "finding_type", "title")
         )
 
         # Build autocomplete list
@@ -1184,7 +1191,7 @@ class FindingListView(RoleBasedAccessControlMixin, ListView):
                 extra_tags="alert-success",
             )
             return findings.filter(Q(title__icontains=search_term) | Q(description__icontains=search_term)).order_by(
-                "severity__weight", "-cvss_score", "finding_type", "title"
+                "severity__weight", "finding_type", "title"
             )
         return findings
 
@@ -1535,7 +1542,7 @@ class ReportDetailView(RoleBasedAccessControlMixin, DetailView):
         findings = (
             Finding.objects.select_related("severity", "finding_type")
             .all()
-            .order_by("severity__weight", "-cvss_score", "finding_type", "title")
+            .order_by("severity__weight", "finding_type", "title")
         )
         for finding in findings:
             self.autocomplete.append(finding.title)
