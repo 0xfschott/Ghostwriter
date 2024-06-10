@@ -6,6 +6,7 @@
 
 {% block pagetitle %}Finding Form{% endblock %}
 
+
 {% block breadcrumbs %}
     <nav aria-label="breadcrumb">
         <ul class="breadcrumb">
@@ -59,8 +60,43 @@
     <script>
       {%  comment %} Prepare CVSS calculator {% endcomment %}
       $(document).ready(function () {
-        prepareCVSSCalc()
+        var initialCVSSVersion = '{{ form.cvss_version.value }}';
+        function loadCVSSCalculator(version) {
+            var url;
+            if(version == "3.0"){
+                url = "/reporting/cvss_v30_calculator/";
+            } else if (version == "3.1") {
+                url = "/reporting/cvss_v31_calculator/";
+            } else if (version == "4.0") {
+                url = "/reporting/cvss_v40_calculator/";
+            } else {
+                return
+            }
+            
+            $.ajax({
+                url: url,
+                method: 'GET',
+                success: function(data) {
+                    $('#cvss_calculator_container').html(data);
+                    prepareCVSSCalc(initialCVSSVersion);
+                },
+                error: function() {
+                    console.error('Failed to load the CVSS calculator');
+                }
+            });
+        }
+        
+        loadCVSSCalculator(initialCVSSVersion);
+        $('#id_cvss_version').change(function() {
+            var selectedVersion = $(this).val();
+            var cvssData = JSON.parse('{{ cvss_data|escapejs }}');
+            $('#id_cvss_score').val(cvssData[selectedVersion].score);
+            $('#id_cvss_vector').val(cvssData[selectedVersion].vector);
+            loadCVSSCalculator(selectedVersion);
+            prepareCVSSCalc(initialCVSSVersion);
+        });
       });
+
     </script>
 {% endblock %}
 

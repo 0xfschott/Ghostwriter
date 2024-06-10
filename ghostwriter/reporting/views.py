@@ -31,6 +31,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
 from django.utils import dateformat, timezone
 from django.views import generic
+from django.views.generic import TemplateView
 from django.views.generic.detail import DetailView, SingleObjectMixin
 from django.views.generic.edit import CreateView, DeleteView, UpdateView, View
 from django.views.generic.list import ListView
@@ -982,9 +983,10 @@ class ConvertFinding(RoleBasedAccessControlMixin, SingleObjectMixin, View):
 
     def get(self, *args, **kwargs):
         finding_instance = self.get_object()
+        cvss_rating = finding_instance.cvss_ratings.first()
+
         try:
-            form = FindingForm(
-                initial={
+            initial = {
                     "title": finding_instance.title,
                     "description": finding_instance.description,
                     "impact": finding_instance.impact,
@@ -995,11 +997,12 @@ class ConvertFinding(RoleBasedAccessControlMixin, SingleObjectMixin, View):
                     "references": finding_instance.references,
                     "severity": finding_instance.severity,
                     "finding_type": finding_instance.finding_type,
-                    "cvss_score": finding_instance.cvss_score,
-                    "cvss_vector": finding_instance.cvss_vector,
                     "tags": finding_instance.tags.all(),
+                    "cvss_version": cvss_rating.version,
+                    "cvss_score": cvss_rating.score,
+                    "cvss_vector": cvss_rating.vector,
                 }
-            )
+            form = FindingForm(initial=initial_data)
         except Exception as exception:  # pragma: no cover
             template = "An exception of type {0} occurred. Arguments:\n{1!r}"
             log_message = template.format(type(exception).__name__, exception.args)
@@ -1011,7 +1014,7 @@ class ConvertFinding(RoleBasedAccessControlMixin, SingleObjectMixin, View):
                 extra_tags="alert-error",
             )
             return HttpResponse(status=500)
-
+        
         return render(self.request, "reporting/finding_form.html", {"form": form})
 
     def post(self, *args, **kwargs):
@@ -1166,7 +1169,7 @@ class FindingListView(RoleBasedAccessControlMixin, ListView):
         findings = (
             Finding.objects.select_related("severity", "finding_type")
             .all()
-            .order_by("severity__weight", "-cvss_score", "finding_type", "title")
+            .order_by("severity__weight", "finding_type", "title")
         )
 
         # Build autocomplete list
@@ -1184,7 +1187,7 @@ class FindingListView(RoleBasedAccessControlMixin, ListView):
                 extra_tags="alert-success",
             )
             return findings.filter(Q(title__icontains=search_term) | Q(description__icontains=search_term)).order_by(
-                "severity__weight", "-cvss_score", "finding_type", "title"
+                "severity__weight", "finding_type", "title"
             )
         return findings
 
@@ -1228,6 +1231,7 @@ class FindingCreate(RoleBasedAccessControlMixin, CreateView):
 
     model = Finding
     form_class = FindingForm
+    logger.info("Finding Create Called")
 
     def test_func(self):
         return verify_finding_access(self.request.user, "create")
@@ -1266,6 +1270,7 @@ class FindingUpdate(RoleBasedAccessControlMixin, UpdateView):
 
     model = Finding
     form_class = FindingForm
+    logger.info("Finding Update Called")
 
     def test_func(self):
         return verify_finding_access(self.request.user, "edit")
@@ -1275,8 +1280,10 @@ class FindingUpdate(RoleBasedAccessControlMixin, UpdateView):
         return redirect(reverse("reporting:finding_detail", kwargs={"pk": self.get_object().pk}))
 
     def get_context_data(self, **kwargs):
+        finding_instance = self.get_object()
         ctx = super().get_context_data(**kwargs)
         ctx["cancel_link"] = reverse("reporting:finding_detail", kwargs={"pk": self.object.pk})
+        ctx["cvss_data"] = json.dumps(finding_instance.get_cvss_ratings())
         return ctx
 
     def get_success_url(self):
@@ -1535,7 +1542,7 @@ class ReportDetailView(RoleBasedAccessControlMixin, DetailView):
         findings = (
             Finding.objects.select_related("severity", "finding_type")
             .all()
-            .order_by("severity__weight", "-cvss_score", "finding_type", "title")
+            .order_by("severity__weight", "finding_type", "title")
         )
         for finding in findings:
             self.autocomplete.append(finding.title)
@@ -3378,3 +3385,10 @@ class ReportObservationLinkUpdate(RoleBasedAccessControlMixin, UpdateView):
             extra_tags="alert-success",
         )
         return reverse("reporting:report_detail", kwargs={"pk": self.object.report.id}) + "#observations"
+
+
+class CvssV30CalculatorView(TemplateView):
+    template_name = "reporting/cvss30_calculator.html"
+
+class CvssV31CalculatorView(TemplateView):
+    template_name = "reporting/cvss31_calculator.html"

@@ -38,7 +38,8 @@ from ghostwriter.reporting.models import (
     ReportFindingLink,
     ReportObservationLink,
     ReportTemplate,
-    Severity,
+    Severity, 
+    CVSSRating
 )
 from ghostwriter.rolodex.models import Project
 
@@ -48,19 +49,37 @@ class FindingForm(forms.ModelForm):
 
     extra_fields = ExtraFieldsField(Finding._meta.label)
 
+    cvss_version = forms.ChoiceField(choices=CVSSRating.CVSS_VERSIONS, required=False, label="CVSS Version")
+    cvss_score = forms.FloatField(required=False, label="CVSS Score")
+    cvss_vector = forms.CharField(required=False, label="CVSS Vector")
+
     class Meta:
         model = Finding
         fields = "__all__"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        cvss_ratings = self.instance.cvss_ratings.all().order_by('-version') if self.instance.pk else []
+        cvss_dict = {rating.version: rating for rating in cvss_ratings}
+
+        if cvss_ratings:
+            highest_version = cvss_ratings.first()
+            self.fields['cvss_version'].initial = highest_version.version
+            self.fields['cvss_score'].initial = highest_version.score
+            self.fields['cvss_vector'].initial = highest_version.vector
+
+        version_choices = CVSSRating.CVSS_VERSIONS
+        self.fields['cvss_version'].choices = version_choices
+
         for field in self.fields:
             self.fields[field].widget.attrs["autocomplete"] = "off"
         self.fields["title"].widget.attrs["placeholder"] = "Finding Title"
         self.fields["description"].widget.attrs["placeholder"] = "What is this ..."
         self.fields["impact"].widget.attrs["placeholder"] = "What is the impact ..."
-        self.fields["cvss_score"].widget.attrs["placeholder"] = "What is the CVSS score ..."
-        self.fields["cvss_vector"].widget.attrs["placeholder"] = "What is the CVSS vector ..."
+        self.fields["cvss_version"].widget.attrs["placeholder"] = "CVSS version"
+        self.fields["cvss_score"].widget.attrs["placeholder"] = "CVSS Score"
+        self.fields["cvss_vector"].widget.attrs["placeholder"] = "CVSS Vector"
 
         self.fields["mitigation"].widget.attrs["placeholder"] = "What needs to be done ..."
         self.fields["replication_steps"].widget.attrs["placeholder"] = "How to reproduce/find this issue ..."
@@ -101,114 +120,15 @@ class FindingForm(forms.ModelForm):
                 css_class="form-row",
             ),
             Row(
-                Column("cvss_score", css_class="form-group col-md-6 mb-0"),
-                Column("cvss_vector", css_class="form-group col-md-6 mb-0"),
+                Column("cvss_version", css_class="form-group col-md-4 mb-0"),
+                Column("cvss_score", css_class="form-group col-md-4 mb-0"),
+                Column("cvss_vector", css_class="form-group col-md-4 mb-0"),
                 css_class="form-row",
             ),
             Accordion(
                 AccordionGroup(
                     "CVSS Calculator",
-                    HTML(
-                        """
-                        <!-- CVSS -->
-                        <!--
-                        Copyright (c) 2015, FIRST.ORG, INC.
-                        All rights reserved.
-
-                        Redistribution and use in source and binary forms, with or without modification, are permitted provided that the
-                        following conditions are met:
-                        1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following
-                        disclaimer.
-                        2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the
-                        following disclaimer in the documentation and/or other materials provided with the distribution.
-                        3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote
-                        products derived from this software without specific prior written permission.
-
-                        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
-                        INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-                        DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-                        SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-                        SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-                        WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-                        OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-                        -->
-
-                        <div class="form-row" style="text-align:center;display:inline-block">
-                        <fieldset id="baseMetricGroup">
-                        <legend id="baseMetricGroup_Legend" title="The Base Metric group represents the intrinsic  characteristics of a vulnerability that are constant over time and across user environments. Determine the vulnerable component and score Attack Vector, Attack Complexity, Privileges Required and User Interaction relative to this.">Base Score</legend>
-
-                        <div class="column column-left">
-
-                        <div class="metric">
-                        <h3 id="AV_Heading" title="This metric reflects the context by which vulnerability exploitation is possible. The Base Score increases the more remote (logically, and physically) an attacker can be in order to exploit the vulnerable component.">Attack Vector (AV)</h3>
-                        <input name="AV" value="N" id="AV_N" type="radio" onclick="CVSSAutoCalc()"><label for="AV_N" id="AV_N_Label" title="A vulnerability exploitable with network access means the vulnerable component is bound to the network stack and the attacker's path is through OSI layer 3 (the network layer). Such a vulnerability is often termed &quot;remotely exploitable” and can be thought of as an attack being exploitable one or more network hops away.">Network (N)</label>
-                        <input name="AV" value="A" id="AV_A" type="radio" onclick="CVSSAutoCalc()"><label for="AV_A" id="AV_A_Label" title="A vulnerability exploitable with adjacent network access means the vulnerable component is bound to the network stack, however the attack is limited to the same shared physical (e.g. Bluetooth, IEEE 802.11), or logical (e.g. local IP subnet) network, and cannot be performed across an OSI layer 3 boundary (e.g. a router).">Adjacent (A)</label>
-                        <input name="AV" value="L" id="AV_L" type="radio" onclick="CVSSAutoCalc()"><label for="AV_L" id="AV_L_Label" title="A vulnerability exploitable with local access means that the vulnerable component is not bound to the network stack, and the attacker’s path is via read/write/execute capabilities. In some cases, the attacker may be logged in locally in order to exploit the vulnerability, otherwise, she may rely on User Interaction to execute a malicious file.">Local (L)</label>
-                        <input name="AV" value="P" id="AV_P" type="radio" onclick="CVSSAutoCalc()"><label for="AV_P" id="AV_P_Label" title="A vulnerability exploitable with physical access requires the attacker to physically touch or manipulate the vulnerable component. Physical interaction may be brief or persistent.">Physical (P)</label>
-                        </div>
-
-                        <div class="metric">
-                        <h3 id="AC_Heading" title="This metric describes the conditions beyond the attacker’s control that must exist in order to exploit the vulnerability. Such conditions may require the collection of more information about the target, the presence of certain system configuration settings, or computational exceptions.">Attack Complexity (AC)</h3>
-                        <input name="AC" value="L" id="AC_L" type="radio" onclick="CVSSAutoCalc()"><label for="AC_L" id="AC_L_Label" title="Specialized access conditions or extenuating circumstances do not exist. An attacker can expect repeatable success against the vulnerable component.">Low (L)</label>
-                        <input name="AC" value="H" id="AC_H" type="radio" onclick="CVSSAutoCalc()"><label for="AC_H" id="AC_H_Label" title="A successful attack depends on conditions beyond the attacker's control. That is, a successful attack cannot be accomplished at will, but requires the attacker to invest in some measurable amount of effort in preparation or execution against the vulnerable component before a successful attack can be expected. For example, a successful attack may require the attacker: to perform target-specific reconnaissance; to prepare the target environment to improve exploit reliability; or to inject herself into the logical network path between the target and the resource requested by the victim in order to read and/or modify network communications (e.g. a man in the middle attack).">High (H)</label>
-                        </div>
-
-                        <div class="metric">
-                        <h3 id="PR_Heading" title="This metric describes the level of privileges an attacker must possess before successfully exploiting the vulnerability. This Base Score increases as fewer privileges are required.">Privileges Required (PR)</h3>
-                        <input name="PR" value="N" id="PR_N" type="radio" onclick="CVSSAutoCalc()"><label for="PR_N" id="PR_N_Label" title="The attacker is unauthorized prior to attack, and therefore does not require any access to settings or files to carry out an attack.">None (N)</label>
-                        <input name="PR" value="L" id="PR_L" type="radio" onclick="CVSSAutoCalc()"><label for="PR_L" id="PR_L_Label" title="The attacker is authorized with (i.e. requires) privileges that provide basic user capabilities that could normally affect only settings and files owned by a user. Alternatively, an attacker with Low privileges may have the ability to cause an impact only to non-sensitive resources.">Low (L)</label>
-                        <input name="PR" value="H" id="PR_H" type="radio" onclick="CVSSAutoCalc()"><label for="PR_H" id="PR_H_Label" title="The attacker is authorized with (i.e. requires) privileges that provide significant (e.g. administrative) control over the vulnerable component that could affect component-wide settings and files.">High (H)</label>
-                        </div>
-
-                        <div class="metric">
-                        <h3 id="UI_Heading" title="This metric captures the requirement for a user, other than the attacker, to participate in the successful compromise the vulnerable component. This metric determines whether the vulnerability can be exploited solely at the will of the attacker, or whether a separate user (or user-initiated process) must participate in some manner. The Base Score is highest when no user interaction is required.">User Interaction (UI)</h3>
-                        <input name="UI" value="N" id="UI_N" type="radio" onclick="CVSSAutoCalc()"><label for="UI_N" id="UI_N_Label" title="The vulnerable system can be exploited without any interaction from any user.">None (N)</label>
-                        <input name="UI" value="R" id="UI_R" type="radio" onclick="CVSSAutoCalc()"><label for="UI_R" id="UI_R_Label" title="Successful exploitation of this vulnerability requires a user to take some action before the vulnerability can be exploited.">Required (R)</label>
-                        </div>
-
-                        </div>
-
-
-                        <div class="column column-right">
-
-                        <div class="metric">
-                        <h3 id="S_Heading" title="Does a successful attack impact a component other than the vulnerable component? If so, the Base Score increases and the Confidentiality, Integrity and Authentication metrics should be scored relative to the impacted component.">Scope (S)</h3>
-                        <input name="S" value="U" id="S_U" type="radio" onclick="CVSSAutoCalc()"><label for="S_U" id="S_U_Label" title="An exploited vulnerability can only affect resources managed by the same authority. In this case the vulnerable component and the impacted component are the same.">Unchanged (U)</label>
-                        <input name="S" value="C" id="S_C" type="radio" onclick="CVSSAutoCalc()"><label for="S_C" id="S_C_Label" title="An exploited vulnerability can affect resources beyond the authorization privileges intended by the vulnerable component. In this case the vulnerable component and the impacted component are different.">Changed (C)</label>
-                        </div>
-
-                        <div class="metric">
-                        <h3 id="C_Heading" title="This metric measures the impact to the confidentiality of the information resources managed by a software component due to a successfully exploited vulnerability. Confidentiality refers to limiting information access and disclosure to only authorized users, as well as preventing access by, or disclosure to, unauthorized ones.">Confidentiality (C)</h3>
-                        <input name="C" value="N" id="C_N" type="radio" onclick="CVSSAutoCalc()"><label for="C_N" id="C_N_Label" title="There is no loss of confidentiality within the impacted component.">None (N)</label>
-                        <input name="C" value="L" id="C_L" type="radio" onclick="CVSSAutoCalc()"><label for="C_L" id="C_L_Label" title="There is some loss of confidentiality. Access to some restricted information is obtained, but the attacker does not have control over what information is obtained, or the amount or kind of loss is constrained. The information disclosure does not cause a direct, serious loss to the impacted component.">Low (L)</label>
-                        <input name="C" value="H" id="C_H" type="radio" onclick="CVSSAutoCalc()"><label for="C_H" id="C_H_Label" title="There is total loss of confidentiality, resulting in all resources within the impacted component being divulged to the attacker. Alternatively, access to only some restricted information is obtained, but the disclosed information presents a direct, serious impact.">High (H)</label>
-                        </div>
-
-                        <div class="metric">
-                        <h3 id="I_Heading" title="This metric measures the impact to integrity of a successfully exploited vulnerability. Integrity refers to the trustworthiness and veracity of information.">Integrity (I)</h3>
-                        <input name="I" value="N" id="I_N" type="radio" onclick="CVSSAutoCalc()"><label for="I_N" id="I_N_Label" title="There is no loss of integrity within the impacted component.">None (N)</label>
-                        <input name="I" value="L" id="I_L" type="radio" onclick="CVSSAutoCalc()"><label for="I_L" id="I_L_Label" title="Modification of data is possible, but the attacker does not have control over the consequence of a modification, or the amount of modification is constrained. The data modification does not have a direct, serious impact on the impacted component.">Low (L)</label>
-                        <input name="I" value="H" id="I_H" type="radio" onclick="CVSSAutoCalc()"><label for="I_H" id="I_H_Label" title="There is a total loss of integrity, or a complete loss of protection. For example, the attacker is able to modify any/all files protected by the impacted component. Alternatively, only some files can be modified, but malicious modification would present a direct, serious consequence to the impacted component.">High (H)</label>
-                        </div>
-
-                        <div class="metric">
-                        <h3 id="A_Heading" title="This metric measures the impact to the availability of the impacted component resulting from a successfully exploited vulnerability. It refers to the loss of availability of the impacted component itself, such as a networked service (e.g., web, database, email). Since availability refers to the accessibility of information resources, attacks that consume network bandwidth, processor cycles, or disk space all impact the availability of an impacted component.">Availability (A)</h3>
-                        <input name="A" value="N" id="A_N" type="radio" onclick="CVSSAutoCalc()"><label for="A_N" id="A_N_Label" title="There is no impact to availability within the impacted component.">None (N)</label>
-                        <input name="A" value="L" id="A_L" type="radio" onclick="CVSSAutoCalc()"><label for="A_L" id="A_L_Label" title="There is reduced performance or interruptions in resource availability. Even if repeated exploitation of the vulnerability is possible, the attacker does not have the ability to completely deny service to legitimate users. The resources in the impacted component are either partially available all of the time, or fully available only some of the time, but overall there is no direct, serious consequence to the impacted component.">Low (L)</label>
-                        <input name="A" value="H" id="A_H" type="radio" onclick="CVSSAutoCalc()"><label for="A_H" id="A_H_Label" title="There is total loss of availability, resulting in the attacker being able to fully deny access to resources in the impacted component; this loss is either sustained (while the attacker continues to deliver the attack) or persistent (the condition persists even after the attack has completed). Alternatively, the attacker has the ability to deny some availability, but the loss of availability presents a direct, serious consequence to the impacted component (e.g., the attacker cannot disrupt existing connections, but can prevent new connections; the attacker can repeatedly exploit a vulnerability that, in each instance of a successful attack, leaks a only small amount of memory, but after repeated exploitation causes a service to become completely unavailable).">High (H)</label>
-                        </div>
-
-                        </div>
-
-
-                        <div id="scoreRating" class="scoreRating">
-                        <span id="baseMetricScore"></span>
-                        <span id="baseSeverity">Select values for all base metrics</span>
-                        </div>
-                        </fieldset>
-                        </div>
-                        """
-                    ),
+                    HTML('<div id="cvss_calculator_container"></div>'),
                     active=False,
                     template="accordion_group.html",
                 ),
@@ -259,6 +179,16 @@ class FindingForm(forms.ModelForm):
                 ),
             ),
         )
+    def save(self, commit=True):
+        finding = super().save(commit=False)
+        if commit:
+            finding.save()
+            cvss_version = self.cleaned_data.get("cvss_version")
+            cvss_score = self.cleaned_data.get("cvss_score")
+            cvss_vector = self.cleaned_data.get("cvss_vector")
+            if cvss_version and cvss_score is not None and cvss_vector:
+                finding.add_cvss_rating(cvss_version, cvss_score, cvss_vector)
+        return finding
 
 
 class ReportForm(forms.ModelForm):
@@ -428,8 +358,9 @@ class ReportFindingLinkUpdateForm(forms.ModelForm):
                 Column("severity", css_class="form-group col-md-6 mb-0"),
             ),
             Row(
-                Column("cvss_score", css_class="form-group col-md-6 mb-0"),
-                Column("cvss_vector", css_class="form-group col-md-6 mb-0"),
+                Column("cvss_version", css_class="form-group col-md-4 mb-0"),
+                Column("cvss_score", css_class="form-group col-md-4 mb-0"),
+                Column("cvss_vector", css_class="form-group col-md-4 mb-0"),
                 css_class="form-row",
             ),
             Accordion(

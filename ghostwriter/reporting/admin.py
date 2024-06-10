@@ -21,6 +21,7 @@ from ghostwriter.reporting.models import (
     ReportFindingLink,
     ReportTemplate,
     Severity,
+    CVSSRating
 )
 from ghostwriter.reporting.resources import FindingResource
 
@@ -67,7 +68,6 @@ class EvidenceAdmin(admin.ModelAdmin):
 class FindingTypeAdmin(admin.ModelAdmin):
     pass
 
-
 @admin.register(Finding)
 class FindingAdmin(ImportExportModelAdmin):
     resource_class = FindingResource
@@ -79,6 +79,7 @@ class FindingAdmin(ImportExportModelAdmin):
     )
     list_editable = ("severity", "finding_type")
     list_display_links = ("title",)
+
     fieldsets = (
         (
             "General Information",
@@ -87,9 +88,8 @@ class FindingAdmin(ImportExportModelAdmin):
                     "title",
                     "finding_type",
                     "severity",
-                    "cvss_score",
-                    "cvss_vector",
                     "tags",
+                    "cvss_ratings"
                 )
             },
         ),
@@ -170,9 +170,8 @@ class ReportFindingLinkAdmin(admin.ModelAdmin):
                     "position",
                     "title",
                     "finding_type",
-                    "severity",
-                    "cvss_score",
                     "tags",
+                    "cvss_ratings"
                 )
             },
         ),

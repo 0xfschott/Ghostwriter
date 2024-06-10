@@ -134,6 +134,26 @@ class FindingType(models.Model):
         return f"{self.finding_type}"
 
 
+class CVSSRating(models.Model):
+    """Model to store CVSS ratings."""
+    CVSS_VERSIONS = [
+        ('3.0', '3.0'),
+        ('3.1', '3.1'),
+        ('4.0', '4.0')
+    ]
+
+    version = models.CharField("CVSS Version", max_length=10, choices=CVSS_VERSIONS, help_text="Version of the CVSS (e.g., 3.0, 3.1, 4.0)")
+    score = models.FloatField("CVSS Score", help_text="CVSS score for the rating")
+    vector = models.CharField("CVSS Vector", max_length=255, help_text="CVSS vector for the rating")
+
+    class Meta:
+        verbose_name = "CVSS Rating"
+        verbose_name_plural = "CVSS Ratings"
+
+    def __str__(self):
+        return f"{self.version}: {self.vector} ({self.score})"
+
+
 class Finding(models.Model):
     """Stores an individual finding, related to :model:`reporting.Severity` and :model:`reporting.FindingType`."""
 
@@ -191,18 +211,10 @@ class Finding(models.Model):
         blank=True,
         help_text="Provide notes for your team that describes how the finding is intended to be used or edited during editing",
     )
-    cvss_score = models.FloatField(
-        "CVSS Score v3.0",
+    cvss_ratings = models.ManyToManyField(
+        CVSSRating,
         blank=True,
-        null=True,
-        help_text="Set the CVSS score for this finding",
-    )
-    cvss_vector = models.CharField(
-        "CVSS Vector v3.0",
-        blank=True,
-        null=True,
-        max_length=54,
-        help_text="Set the CVSS vector for this finding",
+        related_name="findings"
     )
     tags = TaggableManager(blank=True)
     # Foreign Keys
@@ -222,12 +234,27 @@ class Finding(models.Model):
     extra_fields = models.JSONField(default=dict)
 
     class Meta:
-        ordering = ["severity", "-cvss_score", "finding_type", "title"]
+        ordering = ["severity", "finding_type", "title"]
         verbose_name = "Finding"
         verbose_name_plural = "Findings"
 
     def get_absolute_url(self):
         return reverse("reporting:finding_detail", args=[str(self.id)])
+
+    def add_cvss_rating(self, version, score, vector):
+        """Adds a new CVSS rating while ensuring that there is only one of each version"""
+        self.cvss_ratings.filter(version=version).delete()
+        cvss_rating, created = CVSSRating.objects.get_or_create(version=version, score=score, vector=vector)
+        self.cvss_ratings.add(cvss_rating)
+    
+    def get_cvss_ratings(self):
+        cvss_ratings = self.cvss_ratings.all()
+        cvss_data = {rating.version: {'score': rating.score, 'vector': rating.vector} for rating in cvss_ratings}
+
+        for version, _ in CVSSRating.CVSS_VERSIONS:
+            if version not in cvss_data:
+                cvss_data[version] = {'score': '', 'vector': ''}
+        return cvss_data
 
     def __str__(self):
         return f"[{self.severity}] {self.title}"
@@ -517,18 +544,10 @@ class ReportFindingLink(models.Model):
         blank=True,
         help_text="Assign the task of editing this finding to a specific operator - defaults to the operator that added it to the report",
     )
-    cvss_score = models.FloatField(
-        "CVSS Score v3.0",
-        blank=True,
-        null=True,
-        help_text="Set the CVSS score for this finding",
-    )
-    cvss_vector = models.CharField(
-        "CVSS Vector v3.0",
-        blank=True,
-        null=True,
-        max_length=54,
-        help_text="Set the CVSS vector for this finding",
+    cvss_ratings = models.ManyToManyField(
+        CVSSRating,
+        blank=True, 
+        related_name="findings_link"
     )
     extra_fields = models.JSONField(default=dict)
 
@@ -536,6 +555,12 @@ class ReportFindingLink(models.Model):
         ordering = ["report", "severity__weight", "position"]
         verbose_name = "Report finding"
         verbose_name_plural = "Report findings"
+
+    def add_cvss_rating(self, version, score, vector):
+        """Adds a new CVSS rating while ensuring that there is only one of each version"""
+        self.cvss_ratings.filter(version=version).delete()
+        cvss_rating, created = CVSSRating.objects.get_or_create(version=version, score=score, vector=vector)
+        self.cvss_ratings.add(cvss_rating)
 
     def __str__(self):
         return f"{self.title}"

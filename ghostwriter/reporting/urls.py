@@ -286,3 +286,8 @@ urlpatterns += [
 urlpatterns += [
     path("export/findings/csv/", views.export_findings_to_csv, name="export_findings_to_csv"),
 ]
+
+urlpatterns += [
+    path('cvss_v30_calculator/', views.CvssV30CalculatorView.as_view(), name='cvss_v30_calculator'),
+    path('cvss_v31_calculator/', views.CvssV31CalculatorView.as_view(), name='cvss_v31_calculator'),
+]

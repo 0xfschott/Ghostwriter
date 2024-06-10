@@ -160,12 +160,21 @@ function hamburger(x) {
 }
 
 // Prepare the CVSS calculator for findings
-function prepareCVSSCalc() {
-    let cvss = document.getElementById('id_cvss_vector')
-    if (cvss != null) {
-        ParseVector(cvss.value);
-        CVSSAutoCalc();
-        console.log('CVSS calculator is ready')
+function prepareCVSSCalc(version) {
+    if(version == "3.0") {
+        let cvss = document.getElementById('id_cvss_vector')
+        if (cvss != null) {
+            ParseVector(cvss.value);
+            CVSSAutoCalc();
+            console.log('CVSS calculator is ready')
+        }
+    } else if(version == "3.1") {
+        let cvss = document.getElementById('id_cvss_vector')
+        if (cvss != null) {
+            ParseVector(cvss.value);
+            CVSSAutoCalc();
+            console.log('CVSS calculator is ready')
+        }
     }
 }
 
